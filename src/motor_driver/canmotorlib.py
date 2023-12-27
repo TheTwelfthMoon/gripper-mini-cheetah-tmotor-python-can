@@ -1,7 +1,7 @@
 import struct
 import time
 import math
-from .bitstring import BitArray
+from bitstring import BitArray
 import serial
 
 # Initial Code Taken From: https://elinux.org/Python_Can
@@ -11,7 +11,7 @@ import serial
 # 8 bytes of data is sent to the motor
 can_frame_fmt_send = "=cIB3x8s"
 # 6 bytes are received from the motor
-can_frame_fmt_recv = "=6s"
+can_frame_fmt_recv = "=6s"#7
 # Total CAN Frame size is 14 Bytes: 8 Bytes overhead + 6 Bytes data
 recvBytes = 14
 
@@ -183,6 +183,8 @@ class CanMotorController():
 
     can_socket_declared = False
     motor_socket = None
+    
+    
 
     def __init__(self, connectport='/dev/ttyUSB0', motor_id=0x01, motor_type = 'AK10_9_V1p1',
                 socket_timeout=0.05):
@@ -217,7 +219,7 @@ class CanMotorController():
         # create a raw socket and bind it to the given CAN interface
         if not CanMotorController.can_socket_declared:
             try:
-                CanMotorController.motor_socket = serial.Serial(port=connectport,baudrate=1000000,parity='N',stopbits=serial.STOPBITS_ONE,bytesize=8, timeout=5.0)
+                CanMotorController.motor_socket = serial.Serial(port=connectport,baudrate=1000000,parity='N',stopbits=serial.STOPBITS_ONE,bytesize=8, timeout=1.0)
                 # CanMotorController.motor_socket.bind(can_socket)
                 # CanMotorController.motor_socket.settimeout(socket_timeout)
                 # print("Bound to: ", can_socket)
@@ -258,10 +260,17 @@ class CanMotorController():
         """
         try:
             # The motor sends back only 6 bytes.
-            frame = CanMotorController.motor_socket.read(6)
-            data  = struct.unpack(can_frame_fmt_recv, frame)
-            # print(data)
-            return 0, 0, data[0]
+            frame = CanMotorController.motor_socket.read(7)#7
+            if (len(frame) > 6):
+                data  = struct.unpack(can_frame_fmt_recv, frame[:6])#frame[:-1]
+                
+                gripper_rav = frame[-1]
+                gripper = 0
+                if gripper_rav == 8:
+                    gripper = 1
+            else:
+                data  = struct.unpack(can_frame_fmt_recv, frame)
+            return 0, 0, data[0], gripper
         except Exception as e:
             print("Unable to Receive CAN Frame.")
             print("Error: ", e)
@@ -273,7 +282,7 @@ class CanMotorController():
         try:
             self._send_can_frame(b'\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFC')
             waitOhneSleep(dt_sleep)
-            can_id, can_dlc, motorStatusData = self._recv_can_frame()
+            can_id, can_dlc, motorStatusData, gripper = self._recv_can_frame()
             rawMotorData = self.decode_motor_status(motorStatusData)
             pos, vel, curr = self.convert_raw_to_physical_rad(rawMotorData[0], rawMotorData[1],
                                                             rawMotorData[2])
@@ -293,12 +302,12 @@ class CanMotorController():
             # causes an initial kick as the motor controller starts. The fix is then to set the 
             # last command to zero so that this does not happen. For the user, the behavior does
             # not change as zero command + disable is same as disable.
-            _, _, _ = self.send_rad_command(0, 0, 0, 0, 0)
+            _, _, _,_ = self.send_rad_command(0, 0, 0, 0, 0)
 
             # Do the actual disabling after zero command.
             self._send_can_frame(b'\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFD')
             waitOhneSleep(dt_sleep)
-            can_id, can_dlc, motorStatusData = self._recv_can_frame()
+            can_id, can_dlc, motorStatusData, gripper = self._recv_can_frame()
             rawMotorData = self.decode_motor_status(motorStatusData)
             pos, vel, curr = self.convert_raw_to_physical_rad(rawMotorData[0], rawMotorData[1],
                                                             rawMotorData[2])
@@ -315,7 +324,7 @@ class CanMotorController():
         try:
             self._send_can_frame(b'\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFE')
             waitOhneSleep(dt_sleep)
-            can_id, can_dlc, motorStatusData = self._recv_can_frame()
+            can_id, can_dlc, motorStatusData, gripper = self._recv_can_frame()
             rawMotorData = self.decode_motor_status(motorStatusData)
             pos, vel, curr = self.convert_raw_to_physical_rad(rawMotorData[0], rawMotorData[1],
                                                             rawMotorData[2])
@@ -439,8 +448,8 @@ class CanMotorController():
         try:
             self._send_can_frame(self._cmd_bytes.tobytes())
             waitOhneSleep(dt_sleep)
-            can_id, can_dlc, data = self._recv_can_frame()
-            return data
+            can_id, can_dlc, data, gripper = self._recv_can_frame()
+            return data, gripper
         except Exception as e:
             print('Error Sending Raw Commands!')
             print("Error: ", e)
@@ -456,10 +465,12 @@ class CanMotorController():
         p_des_rad = math.radians(p_des_deg)
         v_des_rad = math.radians(v_des_deg)
 
-        pos_rad, vel_rad, curr = self.send_rad_command(p_des_rad, v_des_rad, kp, kd, tau_ff)
+        pos_rad, vel_rad, curr, gripper = self.send_rad_command(p_des_rad, v_des_rad, kp, kd, tau_ff)
         pos = math.degrees(pos_rad)
         vel = math.degrees(vel_rad)
-        return pos, vel, curr
+        
+        
+        return pos, vel, curr, gripper
 
     def send_rad_command(self, p_des_rad, v_des_rad, kp, kd, tau_ff):
         """
@@ -492,13 +503,11 @@ class CanMotorController():
 
         rawPos, rawVel, rawKp, rawKd, rawTauff = self.convert_physical_rad_to_raw(p_des_rad,
                                                                 v_des_rad, kp, kd, tau_ff)
-
-        motorStatusData = self._send_raw_command(rawPos, rawVel, rawKp, rawKd, rawTauff)
+        motorStatusData, gripper = self._send_raw_command(rawPos, rawVel, rawKp, rawKd, rawTauff)
         rawMotorData = self.decode_motor_status(motorStatusData)
         pos, vel, curr = self.convert_raw_to_physical_rad(rawMotorData[0], rawMotorData[1],
                                                             rawMotorData[2])
-
-        return pos, vel, curr
+        return pos, vel, curr, gripper
 
     def change_motor_constants(self, P_MIN_NEW, P_MAX_NEW, V_MIN_NEW, V_MAX_NEW, KP_MIN_NEW,
                             KP_MAX_NEW, KD_MIN_NEW, KD_MAX_NEW, T_MIN_NEW, T_MAX_NEW):
