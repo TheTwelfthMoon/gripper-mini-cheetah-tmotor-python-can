@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-#import motorcortex
+import motorcortex
 from src.motor_driver.canmotorlib import CanMotorController
 import numpy as np
 import time
@@ -22,7 +22,7 @@ class Gripper():
         self.__open_drive_pose = -55
         self.__close_drive_pose = -10
 
-        self.__close_drive_path = 50
+        self.__close_drive_path = 65
 
         self.__start_open_gripper_th = threading.Thread(target=self.__open_gripper_block_exec, daemon=True)
         self.__start_close_gripper_th = threading.Thread(target=self.__close_gripper_block_exec, daemon=True)
@@ -70,10 +70,9 @@ class Gripper():
                 time.sleep(0.05)
                 if(check_switch and gripper == 1):
                     break
-                # if (gripper != 1 and check_switch):
                 if (not self.__torque_min is None):
                     if(self.__torque_min > c_curr or self.__torque_max < c_curr):
-                        if (torque_lim_counter > 5):#3 and dt > 1.5):
+                        if (torque_lim_counter > 5):
                             print("Torque limiter: {0}".format(c_curr))
                             return
                         else:
@@ -82,8 +81,6 @@ class Gripper():
                         torque_lim_counter = 0
                 print("Position: {}, __Velocity: {}, Torque: {}".format(c_pos, c_vel,
                                                                 c_curr))
-                # else:
-                #     break
             except:
                 pass
         if(check_switch and gripper == 1):
@@ -173,42 +170,37 @@ class Gripper():
             self.__current_state = "close"
 
 if __name__=="__main__":
-    #time.sleep(5)
-    # parameter_tree = motorcortex.ParameterTree()
-    # motorcortex_types = motorcortex.MessageTypes()
+    time.sleep(5)
+    parameter_tree = motorcortex.ParameterTree()
+    motorcortex_types = motorcortex.MessageTypes()
 
-    # try:
-    #     lic_path = os.path.dirname(__file__) + "/mcx.cert.pem"
-    #     print(os.path.dirname(__file__))
-    #     print(lic_path)
-    #     lic_path = "/home/admin/motorcortex-can-module/mcx.cert.pem"
-    #     req, sub = motorcortex.connect('wss://127.0.0.1:5568:5567', motorcortex_types, parameter_tree,
-    #                                     timeout_ms=1000, certificate=lic_path,
-    #                                     login="admin", password="vectioneer")
+    try:
+        lic_path = os.path.dirname(__file__) + "/mcx.cert.pem"
+        print(os.path.dirname(__file__))
+        print(lic_path)
+        lic_path = "/home/admin/motorcortex-can-module/mcx.cert.pem"
+        req, sub = motorcortex.connect('wss://127.0.0.1:5568:5567', motorcortex_types, parameter_tree,
+                                        timeout_ms=1000, certificate=lic_path,
+                                        login="admin", password="vectioneer")
 
-    #     print("Request connection is etablished")
-    # except Exception as e:
-    #     print(f"Failed to establish connection: {e}")
-    #     exit()
+        print("Request connection is etablished")
+    except Exception as e:
+        print(f"Failed to establish connection: {e}")
+        exit()
 
-    # subscription = sub.subscribe(["root/Control/dummyDouble"], 'group1', 5)
-    # subscription.get()
+    subscription = sub.subscribe(["root/UserParameters/gripperControl"], 'group1', 5)
+    subscription.get()
 
     gripper = Gripper()
-    #params = subscription.read()
 
     while True:
         try:    
-            # params = subscription.read()
-            # cmd = params[0].value[0]
-            cmd = input("Введите число: ")
+            params = subscription.read()
+            cmd = params[0].value[0]
             if (int(cmd) == 0):
                 gripper.open_gripper()
-                #time.sleep(1)
             elif (int(cmd) == 1):
                 gripper.close_gripper()
-                #time.sleep(1)
             time.sleep(1)
         except KeyboardInterrupt:
             break
-    
