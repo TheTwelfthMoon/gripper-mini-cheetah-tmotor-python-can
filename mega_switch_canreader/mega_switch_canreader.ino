@@ -56,11 +56,11 @@ uint8_t type; // bit0: ext, bit1: rtr
 uint8_t len;
 
 void loop() {
-
-  uint8_t data_sw;//=5;
+  
+  //read switch
+  uint8_t data_sw;
   device.read(USW_DATA, data_sw);
-  Serial3.print("read switch  ");
-  Serial3.println(data_sw);
+  
   char data_sw_con;
   if(data_sw == 0)
   {
